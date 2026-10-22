@@ -1,10 +1,10 @@
 /*!
  * 
- * blue-uni-router-hooks.js 1.0.0
- * (c) 2016-2023 Blue
+ * blue-uni-router-hooks.js 1.0.1
+ * (c) 2016-2026 Blue
  * Released under the MIT License.
  * https://github.com/azhanging/blue-uni-router-hooks
- * time:Tue, 25 Jul 2023 16:40:03 GMT
+ * time:Thu, 22 Oct 2026 14:29:00 GMT
  * 
  */
 (function webpackUniversalModuleDefinition(root, factory) {
@@ -127,61 +127,86 @@ __webpack_require__.r(__webpack_exports__);
 __webpack_require__.r(__webpack_exports__);
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "RouterBefore", function() { return RouterBefore; });
 /* harmony import */ var _tools__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(2);
-/*
- * 处理路由下一跳
- * */
 
-function preventRouterNext(nextStatus) {
-    return (typeof nextStatus === "string" ||
-        nextStatus instanceof Error ||
-        nextStatus === false);
+function preventRouterNext(s) {
+    if (typeof s === "string")
+        return true;
+    if (s instanceof Error)
+        return true;
+    if (s === false)
+        return true;
+    if (typeof s === "object" && s !== null && !Array.isArray(s))
+        return true;
+    return false;
 }
 var RouterBefore = /** @class */ (function () {
     function RouterBefore() {
         this.beforeHooks = [];
     }
-    //添加到队里
     RouterBefore.prototype.listen = function (nextHook) {
-        this.beforeHooks.push(nextHook);
+        if (Object(_tools__WEBPACK_IMPORTED_MODULE_0__["isFunction"])(nextHook))
+            this.beforeHooks.push(nextHook);
     };
-    //下一步的数据处理
-    RouterBefore.prototype.run = function (to, from, next, index) {
-        var _this = this;
-        if (index === void 0) { index = 0; }
-        var beforeHooks = this.beforeHooks;
-        //四种情况，path，false，Error参照官方文档中的next处理
-        // true 或者 undefined（没有返回值） 走默认的next()处理
-        //当前的nextHook
-        var currentBeforeHook = beforeHooks[index];
-        //hook处理
-        var hookHandler = function (status) {
-            //需要阻止处理了
-            if (preventRouterNext(status)) {
+    RouterBefore.prototype.run = function (to, from, next) {
+        var hooks = this.beforeHooks;
+        var index = 0;
+        var finished = false;
+        // 统一出口：无论成功/失败/中断，只出一次
+        var finish = function (status) {
+            if (finished)
+                return;
+            finished = true;
+            if (!Object(_tools__WEBPACK_IMPORTED_MODULE_0__["isFunction"])(next))
+                return; // 风险3：next 非函数不崩
+            try {
                 next(status);
             }
-            else {
-                //没有后续了
-                if (index === beforeHooks.length - 1) {
-                    next(status);
-                }
-                else {
-                    _this.run(to, from, next, index + 1);
-                }
+            catch (e) {
+                // 风险2：next 自身抛错不吞、不破坏流程，异步上报
+                setTimeout(function () { throw e; }, 0);
             }
         };
-        //fn处理
-        if (Object(_tools__WEBPACK_IMPORTED_MODULE_0__["isFunction"])(currentBeforeHook)) {
-            Object(_tools__WEBPACK_IMPORTED_MODULE_0__["hook"])(null, currentBeforeHook, [
-                to,
-                from,
-                function (status) {
-                    hookHandler(status);
-                },
-            ]);
-        }
-        else {
-            hookHandler(currentBeforeHook);
-        }
+        // 迭代驱动，彻底消除递归栈溢出
+        var step = function () {
+            var _loop_1 = function () {
+                var current = hooks[index];
+                if (!Object(_tools__WEBPACK_IMPORTED_MODULE_0__["isFunction"])(current)) {
+                    index++;
+                    return "continue";
+                }
+                var called = false;
+                var handler = function (status) {
+                    if (called || finished)
+                        return;
+                    called = true;
+                    if (preventRouterNext(status) || index === hooks.length - 1) {
+                        finish(status);
+                    }
+                    else {
+                        index++;
+                        step(); // 仅在异步/中断时再入，深度 = 异步守卫数
+                    }
+                };
+                try {
+                    var ret = Object(_tools__WEBPACK_IMPORTED_MODULE_0__["hook"])(null, current, [to, from, handler]);
+                    // 风险1：异步守卫 reject 转 next(error)，不再 unhandledRejection
+                    if (ret && typeof ret.then === "function") {
+                        ret.catch(function (err) { return handler(err instanceof Error ? err : new Error(String(err))); });
+                    }
+                }
+                catch (err) {
+                    handler(err);
+                }
+                return { value: void 0 };
+            };
+            while (index < hooks.length) {
+                var state_1 = _loop_1();
+                if (typeof state_1 === "object")
+                    return state_1.value;
+            }
+            finish(); // 队列走完
+        };
+        step();
     };
     return RouterBefore;
 }());
@@ -217,19 +242,25 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "RouterAfter", function() { return RouterAfter; });
 /* harmony import */ var _tools__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(2);
 
-//路由after hook
 var RouterAfter = /** @class */ (function () {
     function RouterAfter() {
         this.afterHooks = [];
     }
-    //添加订阅
     RouterAfter.prototype.listen = function (afterHook) {
-        this.afterHooks.push(afterHook);
+        if (Object(_tools__WEBPACK_IMPORTED_MODULE_0__["isFunction"])(afterHook))
+            this.afterHooks.push(afterHook);
     };
-    //分发订阅
     RouterAfter.prototype.run = function (to, from) {
-        this.afterHooks.forEach(function (currentAfterHook) {
-            Object(_tools__WEBPACK_IMPORTED_MODULE_0__["hook"])(null, currentAfterHook, [to, from]);
+        this.afterHooks.forEach(function (h) {
+            try {
+                var ret = Object(_tools__WEBPACK_IMPORTED_MODULE_0__["hook"])(null, h, [to, from]);
+                if (ret && typeof ret.then === "function") {
+                    ret.catch(function (err) { return console.error("[router-after] async error:", err); });
+                }
+            }
+            catch (err) {
+                console.error("[router-after] sync error:", err);
+            }
         });
     };
     return RouterAfter;

@@ -1,20 +1,22 @@
 import { hook, isFunction } from "./tools";
 
-//路由after hook
 export class RouterAfter {
-  //存储队列
-  afterHooks: Function[];
-  constructor() {
-    this.afterHooks = [];
-  }
-  //添加订阅
+  afterHooks: Function[] = [];
+
   listen(afterHook: Function) {
-    this.afterHooks.push(afterHook);
+    if (isFunction(afterHook)) this.afterHooks.push(afterHook);
   }
-  //分发订阅
+
   run(to: any, from: any) {
-    this.afterHooks.forEach((currentAfterHook) => {
-      hook(null, currentAfterHook, [to, from]);
+    this.afterHooks.forEach((h) => {
+      try {
+        const ret: any = hook(null, h, [to, from]);
+        if (ret && typeof ret.then === "function") {
+          ret.catch((err: any) => console.error("[router-after] async error:", err));
+        }
+      } catch (err) {
+        console.error("[router-after] sync error:", err);
+      }
     });
   }
 }

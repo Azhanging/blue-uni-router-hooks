@@ -1,6 +1,6 @@
 {
   "name": "blue-uni-router-hooks",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "blue-uni-router-hooks",
   "main": "./dist/blue-uni-router-hooks.js",
   "types": "./types/index.d.ts",
